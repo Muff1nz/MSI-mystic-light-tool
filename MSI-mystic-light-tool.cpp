@@ -22,24 +22,16 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #include "stdafx.h"
 #include <atlsafe.h>
 #include "MysticLight_SDK.h"
+#include <string>
+#include <Windows.h>
 
 HINSTANCE MLinstance;
 
 struct MysticLight {		//struct grouping all the function pointers under one pseudo-object, ml, for better clarity
 	LPMLAPI_Initialize init;
-	LPMLAPI_GetErrorMessage errorMsg;
-	LPMLAPI_GetDeviceInfo getDevInfo;
-	LPMLAPI_GetLedInfo getLedInfo;
 	LPMLAPI_GetLedColor getColor;		//coloUr is better tbh..
-	LPMLAPI_GetLedStyle	getStyle;
-	LPMLAPI_GetLedMaxBright getMaxBright;
-	LPMLAPI_GetLedBright getBright;
-	LPMLAPI_GetLedMaxSpeed getMaxSpeed;
-	LPMLAPI_GetLedSpeed getSpeed;
 	LPMLAPI_SetLedColor setColor;
-	LPMLAPI_SetLedStyle setStyle;
 	LPMLAPI_SetLedBright setBright;
-	LPMLAPI_SetLedSpeed setSpeed;
 } ml;
 
 int loadLib() {
@@ -50,62 +42,60 @@ int loadLib() {
 
 	//initialise the struct fields
 	ml.init = (LPMLAPI_Initialize)GetProcAddress(MLinstance, "MLAPI_Initialize");
-	ml.errorMsg = (LPMLAPI_GetErrorMessage)GetProcAddress(MLinstance, "MLAPI_GetErrorMessage");
-	ml.getDevInfo = (LPMLAPI_GetDeviceInfo)GetProcAddress(MLinstance, "MLAPI_GetDeviceInfo");
-	ml.getLedInfo = (LPMLAPI_GetLedInfo)GetProcAddress(MLinstance, "MLAPI_GetLedInfo");
 	ml.getColor = (LPMLAPI_GetLedColor)GetProcAddress(MLinstance, "MLAPI_GetLedColor");
-	ml.getStyle = (LPMLAPI_GetLedStyle)GetProcAddress(MLinstance, "MLAPI_GetLedStyle");
-	ml.getMaxBright = (LPMLAPI_GetLedMaxBright)GetProcAddress(MLinstance, "MLAPI_GetLedMaxBright");
-	ml.getBright = (LPMLAPI_GetLedBright)GetProcAddress(MLinstance, "MLAPI_GetLedBright");
-	ml.getMaxSpeed = (LPMLAPI_GetLedMaxSpeed)GetProcAddress(MLinstance, "MLAPI_GetLedMaxSpeed");
-	ml.getSpeed = (LPMLAPI_GetLedSpeed)GetProcAddress(MLinstance, "MLAPI_GetLedSpeed");
 	ml.setColor = (LPMLAPI_SetLedColor)GetProcAddress(MLinstance, "MLAPI_SetLedColor");
-	ml.setStyle = (LPMLAPI_SetLedStyle)GetProcAddress(MLinstance, "MLAPI_SetLedStyle");
 	ml.setBright = (LPMLAPI_SetLedBright)GetProcAddress(MLinstance, "MLAPI_SetLedBright");
-	ml.setSpeed = (LPMLAPI_SetLedSpeed)GetProcAddress(MLinstance, "MLAPI_SetLedSpeed");
 
 	return 1;
 }
 
-void printStatus(int status) {
-	BSTR errStr;
+//Just made this specific to my build
+BSTR mobo = L"MSI_MB";
 
-	ml.errorMsg(status, &errStr);
-	printf("Function returned status code: %S\n", errStr);
+struct Color {
+	DWORD r;
+	DWORD b;
+	DWORD g;
+
+	bool operator==(Color other) const {
+		return r == other.r && b == other.b && g == other.g;
+	}
+
+	Color operator*(float f) {
+		return {static_cast<DWORD>(r*f), static_cast<DWORD>(g*f), static_cast<DWORD>(b*f) };
+	}
+};
+
+Color black = { 0, 0, 0 };
+Color white = { 100, 100, 100 };
+
+
+void SetLed(BSTR device, DWORD index, Color clr, DWORD bright) {
+	ml.setColor(device, index, clr.r, clr.g, clr.b);
+	ml.setBright(device, index, bright);
 }
 
+void ToggleLed(BSTR device, DWORD index) {
+	Color clr;
+	ml.getColor(device, index, &clr.r, &clr.g, &clr.b);
+	if (clr == black) {
+		SetLed(device, index, white, 1);
+	} else {
+		SetLed(device, index, black, 1);
+	}
+}
 
-int main(){
-
-	int status;
-	CComSafeArray<BSTR> devices;	//Wrapper class to use safearrays in C++ (https://msdn.microsoft.com/en-us/magazine/mt795188.aspx)
-									//according to MSI docs GetDeviceInfo should return a safearray of BSTR for the devices..
-	CComSafeArray<BSTR> ledCount;	//.. and a safearray of BSTR for the led count in each device
+int main(int argc, char** argv) {
+	ShowWindow(GetConsoleWindow(), SW_HIDE);
 
 	if (loadLib()) {
-
-		status = ml.init();		//initialise the sdk
-		printStatus(status);	//helper function to print a verbose description of the status code
-
-		if (status == 0) {		//initialisation successful
-
-			status = ml.getDevInfo(&(devices.m_psa), &(ledCount.m_psa)); //the function will modify the pointer to the descriptor .m_psa, which is itself a pointer to the actual safearray
-			printStatus(status);
-
-			//sample loop to iterate through elements in a safearray
-			for (LONG i = devices.GetLowerBound(); i <= devices.GetUpperBound(); i++) {
-				printf("Device #%d: %S, Led count: %S\n", i, devices.GetAt(i), ledCount.GetAt(i));		//item count of both safearrays is the same, safe to access ledCount too
-			}
-
-			// ... put your code to control leds here
+		if (ml.init() == 0) {		//initialisation successful
+			ToggleLed(mobo, 1);
+			ToggleLed(mobo, 2);
 		}
 
 		FreeLibrary(MLinstance);
-	}
-	else
-		printf("MysticLight_SDK.dll not found.\n");
-
-	system("PAUSE");
-    return 0;
+	} 
+	return 0;
 }
 
